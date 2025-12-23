@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { createMotorModel, updateMotorColor } from "./MotorModel";
+import { getJointLabelConfigs, calculateLinePositions } from "./JointLabels";
 import { CAMERA_SETTINGS } from "../constants";
 import {
   getQualitySettings,
@@ -67,6 +68,7 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
     const bonesRef = useRef<THREE.Bone[]>([]);
     const prevAnglesRef = useRef<JointAngles | null>(null);
     const fpsMonitorRef = useRef<FPSMonitor | null>(null);
+    const labelContainerRef = useRef<HTMLDivElement>(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const [loadingStatus, setLoadingStatus] = useState<
       "loading" | "loaded" | "error"
@@ -74,6 +76,16 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
     const [fps, setFps] = useState(0);
     const [qualityLevel, setQualityLevel] =
       useState<DeviceCapability>("medium");
+    const [showJointLabels, setShowJointLabels] = useState(true);
+    const [linePositions, setLinePositions] = useState<
+      {
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        visible: boolean;
+      }[]
+    >([]);
 
     // Reset animation state
     const isResettingRef = useRef(false);
@@ -120,37 +132,40 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
 
     /**
      * Extract joint angles from model bones with smoothing
-     * Falls back to sine wave simulation if no bones available
+     * Reads actual bone rotation values from the animated model
      */
     const extractJointAngles = useCallback((): JointAngles => {
       const bones = bonesRef.current;
-      const smoothingFactor = 0.15; // 較低 = 更平滑 (0.1-0.3)
+      const smoothingFactor = 0.15;
 
-      let rawAngles: JointAngles;
+      const radToDeg = (rad: number) => rad * (180 / Math.PI);
 
-      // 如果沒有骨架，使用模擬
-      if (bones.length === 0) {
-        const time = Date.now() * 0.001;
-        rawAngles = {
-          j1: Math.sin(time * 0.3) * 45,
-          j2: 30 + Math.sin(time * 0.4) * 25,
-          j3: -45 + Math.sin(time * 0.5) * 30,
-          j4: Math.sin(time * 0.6) * 90,
-          j5: Math.sin(time * 0.35) * 45,
-          j6: Math.sin(time * 0.8) * 180,
-        };
-      } else {
-        // 從骨架讀取角度（轉換為度數）
-        const radToDeg = (rad: number) => rad * (180 / Math.PI);
-        rawAngles = {
-          j1: bones[0] ? radToDeg(bones[0].rotation.y) : 0,
-          j2: bones[1] ? radToDeg(bones[1].rotation.z) : 0,
-          j3: bones[2] ? radToDeg(bones[2].rotation.z) : 0,
-          j4: bones[3] ? radToDeg(bones[3].rotation.x) : 0,
-          j5: bones[4] ? radToDeg(bones[4].rotation.z) : 0,
-          j6: bones[5] ? radToDeg(bones[5].rotation.x) : 0,
-        };
-      }
+      // 取得骨骼的主要旋轉角度（選擇絕對值最大的軸）
+      const getBoneAngle = (bone: THREE.Bone | undefined): number => {
+        if (!bone) return 0;
+        const euler = bone.rotation;
+        const absX = Math.abs(euler.x);
+        const absY = Math.abs(euler.y);
+        const absZ = Math.abs(euler.z);
+
+        // 返回絕對值最大的軸的角度
+        if (absX >= absY && absX >= absZ) {
+          return radToDeg(euler.x);
+        } else if (absY >= absX && absY >= absZ) {
+          return radToDeg(euler.y);
+        } else {
+          return radToDeg(euler.z);
+        }
+      };
+
+      const rawAngles: JointAngles = {
+        j1: getBoneAngle(bones[0]),
+        j2: getBoneAngle(bones[1]),
+        j3: getBoneAngle(bones[2]),
+        j4: getBoneAngle(bones[3]),
+        j5: getBoneAngle(bones[4]),
+        j6: getBoneAngle(bones[5]),
+      };
 
       // 指數平滑處理（Exponential Moving Average）
       const prev = smoothedAnglesRef.current;
@@ -328,17 +343,6 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
 
           // Collect bones for joint angle reading
           const allBones: THREE.Bone[] = [];
-          const jointBones: THREE.Bone[] = [];
-          const jointKeywords = [
-            "joint",
-            "arm",
-            "link",
-            "shoulder",
-            "elbow",
-            "wrist",
-            "axis",
-            "rotate",
-          ];
 
           model.traverse((child) => {
             if (child instanceof THREE.Mesh) {
@@ -347,16 +351,66 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
             }
             if (child instanceof THREE.Bone) {
               allBones.push(child);
-              const name = child.name.toLowerCase();
-              if (jointKeywords.some((keyword) => name.includes(keyword))) {
-                jointBones.push(child);
-              }
             }
           });
 
-          // Use joint-named bones if found, otherwise use all bones
-          const selectedBones = jointBones.length >= 6 ? jointBones : allBones;
-          bonesRef.current = selectedBones.slice(0, 6);
+          // Find the main bone chain by traversing from root
+          // Look for the longest chain of bones (main arm hierarchy)
+          const findBoneChain = (startBone: THREE.Bone): THREE.Bone[] => {
+            const chain: THREE.Bone[] = [startBone];
+            let current = startBone;
+
+            while (current.children.length > 0) {
+              // Find the child bone with the most descendants (main chain)
+              const childBones = current.children.filter(
+                (c): c is THREE.Bone => c instanceof THREE.Bone
+              );
+
+              if (childBones.length === 0) break;
+
+              // Pick the child with most descendants (usually the main arm)
+              let bestChild = childBones[0];
+              let maxDescendants = 0;
+
+              for (const child of childBones) {
+                let count = 0;
+                child.traverse(() => count++);
+                if (count > maxDescendants) {
+                  maxDescendants = count;
+                  bestChild = child;
+                }
+              }
+
+              chain.push(bestChild);
+              current = bestChild;
+            }
+
+            return chain;
+          };
+
+          // Find root bones (bones without bone parents)
+          const rootBones = allBones.filter((bone) => {
+            return !(bone.parent instanceof THREE.Bone);
+          });
+
+          // Find the longest bone chain starting from any root
+          let longestChain: THREE.Bone[] = [];
+          for (const root of rootBones) {
+            const chain = findBoneChain(root);
+            if (chain.length > longestChain.length) {
+              longestChain = chain;
+            }
+          }
+
+          // Select 6 bones evenly distributed along the chain
+          if (longestChain.length >= 6) {
+            const step = (longestChain.length - 1) / 5;
+            bonesRef.current = [0, 1, 2, 3, 4, 5].map(
+              (i) => longestChain[Math.round(i * step)]
+            );
+          } else {
+            bonesRef.current = longestChain.slice(0, 6);
+          }
 
           scene.add(model);
           modelRef.current = model;
@@ -372,16 +426,7 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
 
           setLoadingStatus("loaded");
         },
-        (progress) => {
-          if (progress.total > 0) {
-            console.log(
-              `Loading model: ${(
-                (progress.loaded / progress.total) *
-                100
-              ).toFixed(0)}%`
-            );
-          }
-        },
+        undefined,
         (error) => {
           console.warn("Failed to load external model, using fallback:", error);
           setLoadingStatus("error");
@@ -457,6 +502,37 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
         controlsRef.current.update();
       }
 
+      // Calculate 2D line positions by projecting 3D joints to screen
+      if (
+        showJointLabels &&
+        bonesRef.current.length > 0 &&
+        containerRef.current &&
+        labelContainerRef.current
+      ) {
+        // Get label positions from DOM
+        const labelElements =
+          labelContainerRef.current.querySelectorAll(".joint-label");
+        const labelPositions: { x: number; y: number }[] = [];
+        const containerRect = containerRef.current.getBoundingClientRect();
+
+        labelElements.forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          labelPositions.push({
+            x: rect.left - containerRect.left,
+            y: rect.top + rect.height / 2 - containerRect.top,
+          });
+        });
+
+        const newLinePositions = calculateLinePositions(
+          bonesRef.current,
+          cameraRef.current,
+          containerRef.current.clientWidth,
+          containerRef.current.clientHeight,
+          labelPositions
+        );
+        setLinePositions(newLinePositions);
+      }
+
       // Monitor FPS
       if (fpsMonitorRef.current) {
         const currentFps = fpsMonitorRef.current.tick();
@@ -484,6 +560,7 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
       }
 
       rendererRef.current.render(sceneRef.current, cameraRef.current);
+
       animationIdRef.current = requestAnimationFrame(animate);
     }, [
       isPaused,
@@ -608,8 +685,19 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
               </div>
             </div>
 
-            {/* FPS and Quality Indicator */}
+            {/* Joint Labels Toggle & FPS and Quality Indicator */}
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowJointLabels(!showJointLabels)}
+                className={`px-2 py-1 rounded-sm text-xs font-mono backdrop-blur-sm transition-colors pointer-events-auto cursor-pointer ${
+                  showJointLabels
+                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                    : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10"
+                }`}
+                title={showJointLabels ? "隱藏關節標籤" : "顯示關節標籤"}
+              >
+                🏷️ J1-J6
+              </button>
               <div
                 className={`px-2 py-1 rounded-sm text-xs font-mono backdrop-blur-sm ${
                   fps >= 50
@@ -692,6 +780,50 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
             </div>
           </div>
         </div>
+
+        {/* Fixed Joint Labels with SVG Lines */}
+        {showJointLabels && (
+          <>
+            {/* SVG overlay for connecting lines */}
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none z-6"
+              style={{ overflow: "visible" }}
+            >
+              {linePositions.map(
+                (line, index) =>
+                  line.visible && (
+                    <line
+                      key={`line-${index}`}
+                      x1={line.startX}
+                      y1={line.startY}
+                      x2={line.endX}
+                      y2={line.endY}
+                      stroke="#888888"
+                      strokeWidth="1"
+                      strokeOpacity="0.6"
+                    />
+                  )
+              )}
+            </svg>
+
+            {/* Labels */}
+            <div
+              ref={labelContainerRef}
+              className="absolute right-6 top-1/2 -translate-y-1/2 z-10 pointer-events-none"
+            >
+              <div className="flex flex-col gap-2">
+                {getJointLabelConfigs().map((config) => (
+                  <div
+                    key={config.name}
+                    className="joint-label px-3 py-1.5 rounded bg-[#28282d]/90 text-white text-xs font-mono font-medium border border-white/20 shadow-lg"
+                  >
+                    {config.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* 3D Model Canvas */}
         <div
