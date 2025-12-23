@@ -5,8 +5,10 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  // 如果你的 GitHub Pages 網址包含專案名稱（例如 /threejs-demo/），請取消下面這行的註解
-  // basePath: "/threejs-demo",
+  // 必須設定 basePath 讓 Next.js 知道資源在 /threejs-demo/ 資料夾下
+  basePath: "/threejs-demo",
+  // 確保資產路徑正確
+  assetPrefix: "/threejs-demo",
 };
 
 export default nextConfig;

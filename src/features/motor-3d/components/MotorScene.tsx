@@ -13,8 +13,9 @@ import {
 } from "../utils";
 import type { JointAngles, SensorData } from "@/features/sensor-panel";
 
-// 外部模型路徑
-const EXTERNAL_MODEL_PATH = "/models/kuma_heavy_robot_r-9000s.glb";
+// 外部模型路徑 (需考慮 GitHub Pages 的 basePath)
+const BASE_PATH = "/threejs-demo";
+const EXTERNAL_MODEL_PATH = `${BASE_PATH}/models/kuma_heavy_robot_r-9000s.glb`;
 
 interface MotorSceneProps {
   isOverheating: boolean;
