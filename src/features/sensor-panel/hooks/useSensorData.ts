@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useInterval } from '@/shared';
+import { useInterval } from '@/shared/hooks/useInterval';
 import type { SensorData, JointAngles } from '../types/sensor.types';
 
 /**
