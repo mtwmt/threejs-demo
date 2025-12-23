@@ -1,5 +1,5 @@
 // Components
-export { MotorScene, createMotorModel, updateMotorColor } from './components';
+export { MotorScene, createMotorModel, updateMotorColor, type MotorSceneHandle } from './components';
 
 // Hooks
 export { useMotorAnimation } from './hooks';
