@@ -9,9 +9,6 @@ export default function DeltaLogoPage() {
         <h1 className="text-3xl font-bold text-white mb-2 text-center">
           Delta 3D Logo
         </h1>
-        <p className="text-white/60 text-center mb-8">
-          旋轉觀看：正面顯示 DELTA 文字，側面顯示三角形 Logo
-        </p>
         
         <DeltaLogo3D 
           autoRotateSpeed={1} 
