@@ -130,7 +130,7 @@ export default function Home() {
         {/* Footer */}
         <footer className="text-center pt-6 border-t border-white/10 text-white/50 text-sm flex flex-col gap-1">
           <p>使用 Next.js 15 + Three.js + TypeScript + Tailwind CSS v4 建構</p>
-          <p>Feature-level Colocation 架構示範</p>
+          <p>Feature-level Colocation 架構</p>
         </footer>
       </main>
     </>
