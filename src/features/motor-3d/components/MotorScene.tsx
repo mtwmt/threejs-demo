@@ -696,7 +696,7 @@ export const MotorScene = React.forwardRef<MotorSceneHandle, MotorSceneProps>(
                 }`}
                 title={showJointLabels ? "隱藏關節標籤" : "顯示關節標籤"}
               >
-                🏷️ J1-J6
+                關節標籤
               </button>
               <div
                 className={`px-2 py-1 rounded-sm text-xs font-mono backdrop-blur-sm ${
