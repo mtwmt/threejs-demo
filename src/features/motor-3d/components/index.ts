@@ -1,4 +1,5 @@
 export { MotorScene, type MotorSceneHandle } from "./MotorScene";
+export { DeltaLogo3D } from './DeltaLogo3D';
 export {
   createMotorModel,
   updateMotorColor,
